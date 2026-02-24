@@ -1,0 +1,137 @@
+#!/usr/bin/env bash
+
+set -e
+
+install_pkg() {
+    PKG=$1
+
+    if command -v pacman >/dev/null 2>&1; then
+        sudo pacman -S --needed --noconfirm "$PKG"
+
+    elif command -v dnf >/dev/null 2>&1; then
+        sudo dnf install -y "$PKG"
+
+    elif command -v apt >/dev/null 2>&1; then
+        sudo apt update && sudo apt install -y "$PKG"
+
+    elif command -v eopkg >/dev/null 2>&1; then
+        sudo eopkg install -y "$PKG"
+
+    else
+        echo "❌ Gestionnaire de paquets non supporté. Installe $PKG manuellement."
+        exit 1
+    fi
+}
+
+# --- CHECK FZF ---
+if ! command -v fzf >/dev/null 2>&1; then
+    read -p "📦 fzf n'est pas installé. Installer ? (y/n) " install_fzf
+    if [[ "$install_fzf" == "y" ]]; then
+        install_pkg fzf
+    else
+        echo "❌ fzf requis"
+        exit 1
+    fi
+fi
+
+# --- CHECK BAT ---
+if ! command -v bat >/dev/null 2>&1 && ! command -v batcat >/dev/null 2>&1; then
+    read -p "📦 bat n'est pas installé. Installer ? (y/n) " install_bat
+    if [[ "$install_bat" == "y" ]]; then
+        install_pkg bat
+    else
+        echo "⚠️ bat non installé (fallback sur cat)"
+    fi
+fi
+
+# --- CHECK STOW ---
+if ! command -v stow >/dev/null 2>&1; then
+    read -p "📦 stow n'est pas installé. Installer ? (y/n) " install_stow
+    if [[ "$install_stow" == "y" ]]; then
+        install_pkg stow
+    else
+        echo "⚠️ stow non installé (fonction désactivée)"
+    fi
+fi
+
+# --- BAT CMD ---
+if command -v bat >/dev/null 2>&1; then
+    BAT_CMD="bat"
+elif command -v batcat >/dev/null 2>&1; then
+    BAT_CMD="batcat"
+else
+    BAT_CMD="cat"
+fi
+
+# --- CHECK GIT ---
+if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    echo "❌ Pas dans un repo git"
+    exit 1
+fi
+
+echo "📂 Repo: $(pwd)"
+echo
+
+# --- FILES ---
+FILES=$(git status --short | awk '{print $2}')
+
+if [[ -z "$FILES" ]]; then
+    echo "✔ Aucun changement"
+    exit 0
+fi
+
+# --- FZF SELECT ---
+SELECTED=$(printf "%s\n" "$FILES" | fzf -m \
+    --prompt="Stage fichiers > " \
+    --preview="git diff --color=always {} | $BAT_CMD --style=numbers --color=always")
+
+if [[ -z "$SELECTED" ]]; then
+    echo "❌ Aucun fichier sélectionné"
+    exit 0
+fi
+
+git add $SELECTED
+
+# --- COMMIT ---
+echo
+read -p "📝 Message de commit (vide = auto): " msg
+
+if [[ -z "$msg" ]]; then
+    msg="Update dotfiles: $(date '+%Y-%m-%d %H:%M:%S')"
+fi
+
+git commit -m "$msg"
+
+# --- PUSH ---
+echo
+read -p "🚀 Push ? (y/n) " push_confirm
+if [[ "$push_confirm" == "y" ]]; then
+    git push
+fi
+
+# --- STOW ---
+if command -v stow >/dev/null 2>&1; then
+    echo
+    read -p "🔗 Stow / Unstow ? (s/u/n) " action
+
+    if [[ "$action" == "s" || "$action" == "u" ]]; then
+
+        DIRS=$(find . -mindepth 1 -maxdepth 1 -type d | sed 's|./||')
+
+        SELECTED_DIRS=$(printf "%s\n" "$DIRS" | fzf -m \
+            --prompt="Choix dossiers > ")
+
+        if [[ -z "$SELECTED_DIRS" ]]; then
+            echo "❌ Aucun dossier sélectionné"
+            exit 0
+        fi
+
+        if [[ "$action" == "s" ]]; then
+            stow $SELECTED_DIRS
+            echo "✔ Stow terminé"
+        else
+            stow -D $SELECTED_DIRS
+            echo "✔ Unstow terminé"
+        fi
+    fi
+fi
