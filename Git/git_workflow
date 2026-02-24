@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+
+set -e
+
+# Vérifie qu'on est dans un repo git
+if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    echo "❌ Pas dans un repo git"
+    exit 1
+fi
+
+echo "📂 Repo: $(pwd)"
+echo
+
+# Status
+echo "📊 Status actuel:"
+git status
+echo
+
+# Stage
+read -p "👉 Stage tous les fichiers ? (y/n) " stage_all
+
+if [[ "$stage_all" == "y" ]]; then
+    git add .
+else
+    echo "👉 Fichiers modifiés:"
+    git status --short
+    echo
+    read -p "Entrez les fichiers à stage (séparés par espace): " files
+    git add $files
+fi
+
+# Vérifie s'il y a quelque chose à commit
+if [[ -z $(git diff --cached --name-only) ]]; then
+    echo "✔ Rien à commit"
+    exit 0
+fi
+
+# Commit message
+echo
+read -p "📝 Message de commit (laisser vide = auto): " msg
+
+if [[ -z "$msg" ]]; then
+    msg="Update dotfiles: $(date '+%Y-%m-%d %H:%M:%S')"
+fi
+
+git commit -m "$msg"
+
+# Push
+read -p "🚀 Push vers remote ? (y/n) " push_confirm
+if [[ "$push_confirm" == "y" ]]; then
+    git push
+fi
+
+# STOW
+if command -v stow >/dev/null 2>&1; then
+    echo
+    read -p "🔗 Voulez-vous utiliser stow ? (y/n) " use_stow
+
+    if [[ "$use_stow" == "y" ]]; then
+        echo
+        echo "📦 Dossiers disponibles:"
+        dirs=(*/)
+        for i in "${!dirs[@]}"; do
+            echo "[$i] ${dirs[$i]}"
+        done
+
+        echo
+        read -p "Choisissez les numéros (ex: 0 2 3) ou 'all': " choice
+
+        if [[ "$choice" == "all" ]]; then
+            stow */
+        else
+            selected=()
+            for i in $choice; do
+                selected+=("${dirs[$i]}")
+            done
+            stow "${selected[@]}"
+        fi
+
+        echo "✔ Stow terminé"
+    fi
+fi
